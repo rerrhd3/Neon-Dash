@@ -1,2 +1,4 @@
-# Neon-Dash
-Neon Dash is a fast-paced neon platformer inspired by Geometry Dash. Jump, fly, and dodge deadly obstacles in rhythm with energetic music. One mistake means restart. Test your reflexes, timing, and skill in glowing, hardcore levels.
+#описание на русском:
+Neon Dash — это динамичный неоновый платформер в духе Geometry Dash, где каждая секунда — это испытание твоей реакции. Прыгай, летай и уворачивайся от смертельных ловушек под ритмичную электронную музыку, идеально синхронизированную с геймплеем.
+
+Яркие неоновые уровни, плавные анимации и безумная скорость создают атмосферу настоящего хардкора. Один клик — одна ошибка — один рестарт. Здесь решает только твой скилл и чувство ритма.
