@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>NeonDash: Full Sound & Spider Update</title>
+    <style>
+        :root { --blue: #00f2ff; --pink: #ff00de; --bg: #020205; }
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: var(--bg); overflow: hidden; font-family: 'Arial Black', sans-serif; color: white; }
+        .overlay { position: absolute; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 1000; background: rgba(2,2,5,0.8); transition: 0.8s; }
+        .hidden { opacity: 0; pointer-events: none; transform: scale(1.1); }
+        h1 { font-size: 70px; text-shadow: 0 0 20px var(--blue); letter-spacing: 10px; }
+        .play-btn { width: 100px; height: 100px; border: 5px solid white; border-radius: 50%; cursor: pointer; background: none; color: white; font-size: 40px; transition: 0.3s; box-shadow: 0 0 20px var(--blue); }
+        #progress-bar { position: absolute; top: 0; left: 0; height: 6px; z-index: 2000; width: 0%; background: var(--blue); }
+    </style>
+</head>
+<body>
+
+<div id="progress-bar"></div>
+<div id="menu" class="overlay">
+    <h1 id="title">NEON DASH</h1>
+    <button onclick="startGame()" class="play-btn">▶</button>
+</div>
+
+<script>
+    const canvas = document.createElement('canvas');
+    document.body.appendChild(canvas);
+    const ctx = canvas.getContext('2d');
+    let w = canvas.width = window.innerWidth, h = canvas.height = window.innerHeight;
+
+    let gameState = 'MENU', cameraX = 0, isPressing = false;
+    let trail = [], player, musicTimer;
+
+    // ЗВУКОВАЯ СИСТЕМА
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    
+    function playTone(freq, type, dur, vol, time) {
+        const o = audioCtx.createOscillator(); const g = audioCtx.createGain();
+        o.type = type; o.frequency.setValueAtTime(freq, time);
+        g.gain.setValueAtTime(vol, time); g.gain.exponentialRampToValueAtTime(0.001, time + dur);
+        o.connect(g); g.connect(audioCtx.destination);
+        o.start(time); o.stop(time + dur);
+    }
+
+    function musicLoop() {
+        const now = audioCtx.currentTime;
+        if (gameState === 'MENU') {
+            // Мелодия меню (мягкая)
+            playTone(261.63, 'triangle', 1, 0.05, now); // C4
+            playTone(329.63, 'triangle', 1, 0.05, now + 0.5); // E4
+            musicTimer = setTimeout(musicLoop, 1000);
+        } else if (gameState === 'PLAY') {
+            // Игровой бит
+            playTone(55, 'sine', 0.2, 0.2, now); // Kick
+            playTone(150, 'square', 0.1, 0.03, now + 0.25); // Snare-ish
+            musicTimer = setTimeout(musicLoop, 500);
+        } else if (gameState === 'FINISH') {
+            // Победная музыка
+            playTone(523.25, 'sawtooth', 1.5, 0.1, now); // C5
+            playTone(659.25, 'sawtooth', 1.5, 0.1, now + 0.3); // E5
+        }
+    }
+
+    const level = {
+        speed: 13, length: 25000,
+        portals: [{x: 4000, m: 'spider'}, {x: 9000, m: 'ship'}, {x: 14000, m: 'wave'}, {x: 19000, m: 'spider'}],
+        obs: []
+    };
+
+    function generateLevel() {
+        level.obs = [];
+        for (let x = 1500; x < level.length; x += 900 + Math.random() * 600) {
+            if (!level.portals.some(p => Math.abs(p.x - x) < 500)) level.obs.push(x);
+        }
+    }
+
+    class Player {
+        constructor() {
+            this.x = 250; this.y = h*0.75-36; this.mode = 'cube'; this.side = 1; this.vy = 0; this.rot = 0; this.scale = 1;
+        }
+        update() {
+            if (gameState === 'FINISH') {
+                this.rot += 20; this.scale *= 0.98;
+                this.x += (w/2 - this.x) * 0.05; this.y += (h/2 - this.y) * 0.05;
+                return;
+            }
+            const floor = h*0.75-36, ceil = h*0.25;
+            if (this.mode === 'cube') {
+                this.vy += 1.4; this.y += this.vy;
+                if (this.y >= floor) { this.y = floor; this.vy = 0; this.rot = Math.round(this.rot/90)*90; if(isPressing) this.vy = -18; }
+                else this.rot += 12;
+            } else if (this.mode === 'ship') {
+                this.vy += isPressing ? -1.3 : 1.1; this.vy *= 0.94; this.y += this.vy;
+                this.rot = (this.y <= ceil+5 || this.y >= floor-5) ? 0 : this.vy * 5;
+            } else if (this.mode === 'wave') {
+                this.y += isPressing ? -level.speed : level.speed;
+                this.rot = (this.y <= ceil+5 || this.y >= floor-5) ? 0 : (isPressing ? -45 : 45);
+            } else if (this.mode === 'spider') {
+                this.y = (this.side === 1) ? floor : ceil; this.rot = 0;
+            }
+            if (this.y > floor) this.y = floor; if (this.y < ceil) this.y = ceil;
+            trail.push({x: cameraX + this.x, y: this.y + 18, m: this.mode});
+            if (trail.length > 40) trail.shift();
+        }
+    }
+
+    function drawPlayer(p) {
+        ctx.save();
+        ctx.translate(p.x + 18, p.y + 18);
+        ctx.scale(p.scale, p.scale);
+        if (p.mode === 'spider' && p.side === -1) ctx.scale(1, -1);
+        ctx.rotate(p.rot * Math.PI / 180);
+        ctx.strokeStyle = "white"; ctx.lineWidth = 3;
+
+        if (p.mode === 'cube') {
+            ctx.strokeRect(-18, -18, 36, 36);
+            ctx.strokeRect(-8, -8, 16, 16);
+        } else if (p.mode === 'ship') {
+            ctx.beginPath(); ctx.moveTo(-22, 10); ctx.lineTo(20, 0); ctx.lineTo(-22, -10); ctx.closePath(); ctx.stroke();
+        } else if (p.mode === 'wave') {
+            ctx.beginPath(); ctx.moveTo(20, 0); ctx.lineTo(-18, -18); ctx.lineTo(-18, 18); ctx.closePath(); ctx.stroke();
+        } else if (p.mode === 'spider') {
+            // ТЕКСТУРА ПАУКА GD STYLE
+            ctx.fillStyle = "white";
+            ctx.fillRect(-14, -10, 28, 15); // Тело
+            ctx.strokeRect(-14, -10, 28, 15);
+            ctx.fillRect(-18, -4, 8, 8); // Голова
+            // Лапы
+            ctx.beginPath();
+            for(let x of [-10, 0, 10]) {
+                ctx.moveTo(x, 5); ctx.lineTo(x-5, 18);
+                ctx.moveTo(x, 5); ctx.lineTo(x+5, 18);
+            }
+            ctx.stroke();
+        }
+        ctx.restore();
+    }
+
+    function startGame() {
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        clearTimeout(musicTimer);
+        generateLevel();
+        document.getElementById('menu').classList.add('hidden');
+        gameState = 'PLAY'; cameraX = 0; trail = [];
+        player = new Player();
+        musicLoop();
+        loop();
+    }
+
+    function loop() {
+        if (gameState === 'MENU') return;
+        if (gameState === 'PLAY') cameraX += level.speed;
+
+        ctx.fillStyle = '#020205'; ctx.fillRect(0,0,w,h);
+        ctx.strokeStyle = 'rgba(0,242,255,0.1)';
+        ctx.strokeRect(0, h*0.25, w, h*0.5);
+
+        // Порталы
+        level.portals.forEach(p => {
+            let px = p.x - cameraX;
+            ctx.strokeStyle = (p.m === 'wave') ? '#ff00de' : '#0f0';
+            ctx.strokeRect(px, h*0.35, 40, h*0.3);
+            if (Math.abs(player.x - px) < 30) player.mode = p.m;
+        });
+
+        // Шипы
+        level.obs.forEach(ox => {
+            let oxc = ox - cameraX;
+            ctx.fillStyle = "white"; ctx.beginPath();
+            ctx.moveTo(oxc, h*0.75); ctx.lineTo(oxc+20, h*0.75-40); ctx.lineTo(oxc+40, h*0.75); ctx.fill();
+            if (gameState === 'PLAY' && player.x+22 > oxc+8 && player.x+8 < oxc+32 && player.y+28 > h*0.75-35) {
+                location.reload(); // Простой рестарт для примера
+            }
+        });
+
+        // Трейл
+        for(let i = 1; i < trail.length; i++) {
+            ctx.strokeStyle = (trail[i].m === 'wave') ? '#ff00de' : '#00f2ff';
+            ctx.globalAlpha = i / trail.length;
+            ctx.beginPath(); ctx.moveTo(trail[i-1].x - cameraX, trail[i-1].y);
+            ctx.lineTo(trail[i].x - cameraX, trail[i].y); ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+
+        player.update();
+        drawPlayer(player);
+
+        let progress = (cameraX / level.length) * 100;
+        document.getElementById('progress-bar').style.width = Math.min(100, progress) + '%';
+        if (progress >= 100 && gameState !== 'FINISH') {
+            gameState = 'FINISH';
+            clearTimeout(musicTimer);
+            musicLoop();
+        }
+
+        requestAnimationFrame(loop);
+    }
+
+    // Старт музыки в меню при первом клике
+    window.onclick = () => { if(gameState === 'MENU' && !musicTimer) musicLoop(); };
+    window.onkeydown = (e) => { if(e.code === 'Space') { if(player && player.mode === 'spider') player.side *= -1; isPressing = true; }};
+    window.onkeyup = () => isPressing = false;
+    window.onmousedown = () => { if(player && player.mode === 'spider') player.side *= -1; isPressing = true; };
+    window.onmouseup = () => isPressing = false;
+</script>
+</body>
+</html>
